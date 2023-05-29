@@ -10,20 +10,75 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 import easyocr
 
 import cv2
+
 # Initialize EasyOCR reader for English language with GPU support
 reader = easyocr.Reader(['en'], gpu=True)
+
+
+def detect_and_segment_license_plates(img):
+    # Preprocess the image (convert to grayscale, resize, threshold, etc.)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Apply any necessary preprocessing steps
+
+    # Find contours
+    contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Iterate over contours
+    for contour in contours:
+        # Filter contours based on properties if needed
+
+        # Create a bounding rectangle for the contour
+        x, y, w, h = cv2.boundingRect(contour)
+
+        # Perform segmentation on the license plate region
+        plate_roi = gray[y:y + h, x:x + w]
+
+        # Perform OCR on the segmented region
+        result = reader.readtext(plate_roi)
+
+        # Process the OCR result and extract the recognized text
+        text = ""
+
+        for res in result:
+            if len(result) == 1:
+                text = res[1]
+            if len(result) > 1 and len(res[1]) > 6 and res[2] > 0.2:
+                text = res[1]
+
+        # Draw contours and display results
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(img, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+    # Display the image with contours and recognized text
+    cv2.imshow("License Plate Detection", img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# Load the image
+image_path = "images/fiat.jpg"
+image = cv2.imread(image_path)
+
+# Detect and segment license plates
+detect_and_segment_license_plates(image)
 
 # Function to perform license plate recognition using EasyOCR
 def ocr_image(img,coordinates):
     # Extract license plate region from the image based on given coordinates
+    """
+    This function takes an image (img) and the coordinates (coordinates) of a bounding box as input
+    """
     x,y,w, h = int(coordinates[0]), int(coordinates[1]), int(coordinates[2]),int(coordinates[3])
     img = img[y:h,x:w]
 
     # Convert region to grayscale
+    """
+    The coordinates are used to extract the region of interest (ROI) from the image using slicing. 
+    The ROI is defined by the bounding box coordinates
+    """
     gray = cv2.cvtColor(img , cv2.COLOR_RGB2GRAY)
-    #gray = cv2.resize(gray, None, fx = 3, fy = 3, interpolation = cv2.INTER_CUBIC)
+    gray = cv2.resize(gray, None, fx = 3, fy = 3, interpolation = cv2.INTER_CUBIC)
 
-    # Perform OCR on the grayscale image using EasyOC
+    # Perform OCR on the grayscale image using EasyOCR
     result = reader.readtext(gray)
     text = ""
 
@@ -63,7 +118,12 @@ class DetectionPredictor(BasePredictor):
             shape = orig_img[i].shape if self.webcam else orig_img.shape
             pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], shape).round()
 
+
+
         return preds
+
+
+
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
@@ -119,9 +179,10 @@ class DetectionPredictor(BasePredictor):
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
 def predict(cfg):
-    cfg.model = cfg.model or "yolov8n.pt"
+    cfg.model = cfg.model or "best.pt"
     cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # check image size
     cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
+    #cfg.source = "images/ibiza.jpg"
     predictor = DetectionPredictor(cfg)
     predictor()
 
