@@ -3,63 +3,22 @@
 import hydra
 import torch
 
+
 from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
-import easyocr
 
+import easyocr
+import imutils
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 import cv2
 
 # Initialize EasyOCR reader for English language with GPU support
 reader = easyocr.Reader(['en'], gpu=True)
 
-
-def detect_and_segment_license_plates(img):
-    # Preprocess the image (convert to grayscale, resize, threshold, etc.)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Apply any necessary preprocessing steps
-
-    # Find contours
-    contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Iterate over contours
-    for contour in contours:
-        # Filter contours based on properties if needed
-
-        # Create a bounding rectangle for the contour
-        x, y, w, h = cv2.boundingRect(contour)
-
-        # Perform segmentation on the license plate region
-        plate_roi = gray[y:y + h, x:x + w]
-
-        # Perform OCR on the segmented region
-        result = reader.readtext(plate_roi)
-
-        # Process the OCR result and extract the recognized text
-        text = ""
-
-        for res in result:
-            if len(result) == 1:
-                text = res[1]
-            if len(result) > 1 and len(res[1]) > 6 and res[2] > 0.2:
-                text = res[1]
-
-        # Draw contours and display results
-        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(img, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-
-    # Display the image with contours and recognized text
-    cv2.imshow("License Plate Detection", img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-# Load the image
-image_path = "images/fiat.jpg"
-image = cv2.imread(image_path)
-
-# Detect and segment license plates
-detect_and_segment_license_plates(image)
 
 # Function to perform license plate recognition using EasyOCR
 def ocr_image(img,coordinates):
@@ -75,22 +34,38 @@ def ocr_image(img,coordinates):
     The coordinates are used to extract the region of interest (ROI) from the image using slicing. 
     The ROI is defined by the bounding box coordinates
     """
-    gray = cv2.cvtColor(img , cv2.COLOR_RGB2GRAY)
-    gray = cv2.resize(gray, None, fx = 3, fy = 3, interpolation = cv2.INTER_CUBIC)
 
-    # Perform OCR on the grayscale image using EasyOCR
-    result = reader.readtext(gray)
+    license_plate = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    license_plate_gray = cv2.cvtColor(license_plate , cv2.COLOR_BGR2GRAY)
+    license_plate_gray = cv2.resize(license_plate_gray, None, fx = 3, fy = 3, interpolation = cv2.INTER_CUBIC)
+
+    # Perform additional processing on the grayscale image
+    bfilter = cv2.bilateralFilter(license_plate_gray, 11, 17, 17)
+    edge = cv2.Canny(bfilter, 30, 200)
+    # Find contours
+    keypoints = cv2.findContours(edge.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    contourss = imutils.grab_contours(keypoints)
+    contours = sorted(contourss, key=cv2.contourArea, reverse=True)[:10]
+    len(contours)
+
+
+    # # Perform OCR on the grayscale image using EasyOCR
+    result = reader.readtext(bfilter)
     text = ""
-
+    #
+    #
     for res in result:
         # Extract the license plate text from OCR results
         if len(result) == 1:
             text = res[1]
-        if len(result) >1 and len(res[1])>6 and res[2]> 0.2:
+        if len(result) >1 and len(res[1])>6 and res[2]> 0.4:
             text = res[1]
-    #     text += res[1] + " "
-    
+            text += res[1] + " "
+    #
+    #
     return str(text)
+
+
 
 # Custom DetectionPredictor Class
 class DetectionPredictor(BasePredictor):
@@ -100,6 +75,8 @@ class DetectionPredictor(BasePredictor):
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
 
     def preprocess(self, img):
+
+
         # Convert image to PyTorch tensor and perform normalization
         img = torch.from_numpy(img).to(self.model.device)
         img = img.half() if self.model.fp16 else img.float()  # uint8 to fp16/32
@@ -119,9 +96,7 @@ class DetectionPredictor(BasePredictor):
             pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], shape).round()
 
 
-
         return preds
-
 
 
 
@@ -132,6 +107,7 @@ class DetectionPredictor(BasePredictor):
             im = im[None]  # expand for batch dim
         self.seen += 1
         im0 = im0.copy()
+
         if self.webcam:  # batch_size >= 1
             log_string += f'{idx}: '
             frame = self.dataset.count
@@ -151,6 +127,7 @@ class DetectionPredictor(BasePredictor):
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
+
         # write
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
@@ -165,7 +142,7 @@ class DetectionPredictor(BasePredictor):
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 text_ocr = ocr_image(im0,xyxy)
-                label = text_ocr              
+                label = text_ocr
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
             if self.args.save_crop:
                 imc = im0.copy()
@@ -174,17 +151,26 @@ class DetectionPredictor(BasePredictor):
                              file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
                              BGR=True)
 
+
+
+            # Display the image with license plate text
+            plt.imshow(im0)
+            plt.axis('off')
+            plt.title(f'License Plate : {text_ocr}')
+            plt.show()
         return log_string
 
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
 def predict(cfg):
-    cfg.model = cfg.model or "best.pt"
-    cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # check image size
-    cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
-    #cfg.source = "images/ibiza.jpg"
-    predictor = DetectionPredictor(cfg)
-    predictor()
+        cfg.model = cfg.model or "best.pt"
+        cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # check image size
+        cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
+        #cfg.source = "images/nissan.jpg"
+        predictor = DetectionPredictor(cfg)
+        predictor()
+
+
 
 
 if __name__ == "__main__":
