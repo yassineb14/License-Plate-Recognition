@@ -38,8 +38,5 @@ pip install -r requirements.txt
 <img src="https://github.com/yassineb14/License-Plate-Recognition/">
 </p>
 
- - Download best.pt (Result of training)
-
-Download weight: https://drive.google.com/file/d/1WoWDuMFxC7WvfFFvL-zTgQWj-1oM-Y5e/view?usp=share_link#   L i c e n s e - P l a t e - R e c o g n i t i o n 
  
  
